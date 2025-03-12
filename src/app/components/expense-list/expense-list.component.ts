@@ -4,11 +4,12 @@ import { ExpenseService } from '../../services/expense.service';
 import { Expense } from '../../models/expense.model';
 import { FormsModule } from '@angular/forms';
 import { map } from 'rxjs/operators';
+import { SafeUrlPipe } from '../../pipes/safe-url.pipe';
 
 @Component({
   selector: 'app-expense-list',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, SafeUrlPipe],
   template: `
     <div class="space-y-4">
       <div class="flex justify-between items-center">
@@ -59,6 +60,9 @@ import { map } from 'rxjs/operators';
                 Amount
               </th>
               <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Receipt
+              </th>
+              <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
             </tr>
@@ -82,6 +86,25 @@ import { map } from 'rxjs/operators';
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {{ expense.amount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
                 </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  @if (expense.receipt) {
+                    <button
+                      (click)="viewReceipt(expense.receipt)"
+                      class="inline-flex items-center px-2.5 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                      @if (expense.receipt.fileUrl.endsWith('.pdf')) {
+                        <svg class="h-4 w-4 mr-1 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                      } @else {
+                        <svg class="h-4 w-4 mr-1 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      }
+                      View
+                    </button>
+                  }
+                </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                   <button
                     (click)="onEdit(expense)"
@@ -99,7 +122,7 @@ import { map } from 'rxjs/operators';
               </tr>
             } @empty {
               <tr>
-                <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                <td colspan="6" class="px-6 py-4 text-center text-gray-500">
                   No expenses found
                 </td>
               </tr>
@@ -107,6 +130,36 @@ import { map } from 'rxjs/operators';
           </tbody>
         </table>
       </div>
+
+      <!-- Receipt Preview Modal -->
+      @if (selectedReceipt) {
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-medium text-gray-900">Receipt Preview</h3>
+              <button
+                (click)="closeReceiptPreview()"
+                class="text-gray-400 hover:text-gray-500 focus:outline-none"
+              >
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div class="flex justify-center">
+              @if (selectedReceipt.fileUrl.endsWith('.pdf')) {
+                <iframe [src]="selectedReceipt.fileUrl | safeUrl" class="w-full h-[600px]"></iframe>
+              } @else {
+                <img [src]="selectedReceipt.fileUrl" alt="Receipt" class="max-h-[600px] object-contain"/>
+              }
+            </div>
+            <div class="mt-4 text-sm text-gray-500">
+              <p>Uploaded on: {{ selectedReceipt.uploadDate | date:'medium' }}</p>
+              <p>File name: {{ selectedReceipt.fileName }}</p>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: []
@@ -114,6 +167,11 @@ import { map } from 'rxjs/operators';
 export class ExpenseListComponent implements OnInit {
   searchTerm: string = '';
   filteredExpenses$;
+  selectedReceipt: {
+    fileUrl: string;
+    fileName: string;
+    uploadDate: Date;
+  } | null = null;
 
   private readonly categoryColors: { [key: string]: string } = {
     Income: '#22C55E', // Green for income
@@ -147,6 +205,14 @@ export class ExpenseListComponent implements OnInit {
 
   getCategoryTextColor(category: string): string {
     return this.categoryColors[category] || this.categoryColors['Other'];
+  }
+
+  viewReceipt(receipt: { fileUrl: string; fileName: string; uploadDate: Date }): void {
+    this.selectedReceipt = receipt;
+  }
+
+  closeReceiptPreview(): void {
+    this.selectedReceipt = null;
   }
 
   onDelete(id: string): void {

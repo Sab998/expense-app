@@ -16,6 +16,11 @@ export interface Expense {
   category: ExpenseCategory;
   date: Date;
   notes?: string;
+  receipt: {
+    fileName: string;
+    fileUrl: string;
+    uploadDate: Date;
+  };
 }
 
 export interface ExpenseSummary {

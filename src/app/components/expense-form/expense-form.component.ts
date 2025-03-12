@@ -79,10 +79,84 @@ import { Expense, ExpenseCategory } from '../../models/expense.model';
         }
       </div>
 
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">
+          Receipt
+          <span class="text-red-500">*</span>
+        </label>
+        <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-primary-500 transition-colors duration-200"
+             [class.border-red-500]="showReceiptError && !hasReceipt"
+             (dragover)="onDragOver($event)"
+             (dragleave)="onDragLeave($event)"
+             (drop)="onDrop($event)">
+          <div class="space-y-1 text-center">
+            @if (!previewUrl) {
+              <svg
+                class="mx-auto h-12 w-12 text-gray-400"
+                stroke="currentColor"
+                fill="none"
+                viewBox="0 0 48 48"
+                aria-hidden="true"
+              >
+                <path
+                  d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <div class="flex text-sm text-gray-600">
+                <label
+                  for="receipt"
+                  class="relative cursor-pointer rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
+                >
+                  <span>Upload a file</span>
+                  <input
+                    id="receipt"
+                    #fileInput
+                    type="file"
+                    class="sr-only"
+                    accept="image/*,.pdf"
+                    (change)="onFileSelected($event)"
+                  />
+                </label>
+                <p class="pl-1">or drag and drop</p>
+              </div>
+              <p class="text-xs text-gray-500">PNG, JPG, PDF up to 10MB</p>
+            } @else {
+              <div class="relative">
+                @if (previewUrl.endsWith('.pdf')) {
+                  <div class="flex items-center justify-center">
+                    <svg class="h-16 w-16 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                } @else {
+                  <img [src]="previewUrl" alt="Receipt preview" class="max-h-48 rounded-lg object-contain"/>
+                }
+                <button
+                  type="button"
+                  (click)="removeFile()"
+                  class="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p class="text-sm text-gray-500 mt-2">{{selectedFile?.name}}</p>
+            }
+          </div>
+        </div>
+        @if (showReceiptError && !hasReceipt) {
+          <p class="mt-1 text-sm text-red-600">Receipt is required</p>
+        }
+      </div>
+
       <div class="flex justify-end">
         <button
           type="submit"
-          [disabled]="expenseForm.invalid || isSubmitting"
+          [disabled]="expenseForm.invalid || isSubmitting || !hasReceipt"
           class="flex items-center gap-2 px-6 py-2.5 text-white bg-primary-600 rounded-lg transition-all duration-200 transform hover:translate-y-[-2px] hover:shadow-lg disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
         >
           @if (isSubmitting) {
@@ -120,6 +194,10 @@ import { Expense, ExpenseCategory } from '../../models/expense.model';
       transform: scale(0);
       animation: ripple 0.6s linear;
     }
+
+    :host {
+      display: block;
+    }
   `]
 })
 export class ExpenseFormComponent implements OnInit {
@@ -128,6 +206,10 @@ export class ExpenseFormComponent implements OnInit {
 
   expenseForm: FormGroup;
   isSubmitting = false;
+  selectedFile: File | null = null;
+  previewUrl: string | null = null;
+  showReceiptError = false;
+  hasReceipt = false;
 
   constructor(private fb: FormBuilder) {
     this.expenseForm = this.fb.group({
@@ -140,7 +222,6 @@ export class ExpenseFormComponent implements OnInit {
 
   ngOnInit(): void {
     if (this.expense) {
-      // Format the date for HTML5 date input (YYYY-MM-DD)
       const date = new Date(this.expense.date);
       const formattedDate = date.toISOString().split('T')[0];
       
@@ -150,6 +231,12 @@ export class ExpenseFormComponent implements OnInit {
         category: this.expense.category,
         date: formattedDate
       });
+
+      // If editing and there's an existing receipt
+      if (this.expense.receipt) {
+        this.previewUrl = this.expense.receipt.fileUrl;
+        this.hasReceipt = true;
+      }
     } else {
       // Set today's date as default
       const today = new Date();
@@ -158,17 +245,93 @@ export class ExpenseFormComponent implements OnInit {
     }
   }
 
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files?.length) {
+      this.handleFile(input.files[0]);
+    }
+  }
+
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const files = event.dataTransfer?.files;
+    if (files?.length) {
+      this.handleFile(files[0]);
+    }
+  }
+
+  handleFile(file: File): void {
+    // Check file size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File is too large. Maximum size is 10MB.');
+      return;
+    }
+
+    // Check file type
+    if (!file.type.match(/^image\/(jpeg|png|gif)$/) && file.type !== 'application/pdf') {
+      alert('Invalid file type. Please upload an image (JPG, PNG, GIF) or PDF.');
+      return;
+    }
+
+    this.selectedFile = file;
+    this.hasReceipt = true;
+    this.showReceiptError = false;
+
+    // Create preview for images
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.previewUrl = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // For PDFs, show a PDF icon instead
+      this.previewUrl = 'pdf';
+    }
+  }
+
+  removeFile(): void {
+    this.selectedFile = null;
+    this.previewUrl = null;
+    this.hasReceipt = false;
+  }
+
   onSubmit(): void {
-    if (this.expenseForm.valid) {
+    this.showReceiptError = !this.hasReceipt;
+    
+    if (this.expenseForm.valid && this.hasReceipt) {
       this.isSubmitting = true;
-      
+
+      // Create a new expense object with the form values and receipt info
+      const formData = this.expenseForm.value;
+      const expenseData = {
+        ...formData,
+        receipt: {
+          fileName: this.selectedFile?.name || this.expense?.receipt?.fileName,
+          fileUrl: this.previewUrl || this.expense?.receipt?.fileUrl,
+          uploadDate: new Date()
+        }
+      };
+
       // Simulate loading state for better UX
       setTimeout(() => {
-        this.submitExpense.emit(this.expenseForm.value);
+        this.submitExpense.emit(expenseData);
         if (!this.expense) {
           this.expenseForm.reset({
-            date: this.expenseForm.get('date')?.value // Keep the date
+            date: this.expenseForm.get('date')?.value
           });
+          this.removeFile();
         }
         this.isSubmitting = false;
       }, 600);

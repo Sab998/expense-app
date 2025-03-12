@@ -40,7 +40,7 @@ import { map, takeUntil, distinctUntilChanged, shareReplay } from 'rxjs/operator
           <div class="space-y-3">
             @if (paginatedExpenses$ | async; as expenses) {
               @for (expense of expenses; track expense.id) {
-                <div class="flex justify-between items-center p-3 rounded-lg hover:bg-gray-50 transition-colors duration-150 animate-fade-in"
+                <div class="flex justify-between items-center p-1 rounded-lg hover:bg-gray-50 transition-colors duration-150 animate-fade-in"
                      [style.animation-delay]="$index * 100 + 'ms'">
                   <div>
                     <p class="font-medium text-gray-900">{{expense.description}}</p>
