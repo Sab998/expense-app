@@ -1,8 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ExpenseService } from '../../services/expense.service';
-import { ExpenseSummary } from '../../models/expense.model';
-import { Observable } from 'rxjs';
+import { ExpenseSummary, Expense } from '../../models/expense.model';
+import { Observable, BehaviorSubject, combineLatest, Subject } from 'rxjs';
+import { map, takeUntil, distinctUntilChanged, shareReplay } from 'rxjs/operators';
 
 @Component({
   selector: 'app-dashboard',
@@ -37,18 +38,49 @@ import { Observable } from 'rxjs';
             </div>
           </div>
           <div class="space-y-3">
-            <div *ngFor="let expense of (summary$ | async)?.recentExpenses; let i = index"
-                 class="flex justify-between items-center p-3 rounded-lg hover:bg-gray-50 transition-colors duration-150"
-                 [style.animation-delay]="i * 100 + 'ms'">
-              <div>
-                <p class="font-medium text-gray-900">{{expense.description}}</p>
-                <p class="text-sm text-gray-500">{{expense.date | date:'MMM d, y'}}</p>
-              </div>
-              <div class="text-right">
-                <p class="font-medium text-blue-600">{{expense.amount | currency:'GBP':'symbol':'1.2-2':'en-GB'}}</p>
-                <p class="text-sm text-gray-500">{{expense.category}}</p>
-              </div>
-            </div>
+            @if (paginatedExpenses$ | async; as expenses) {
+              @for (expense of expenses; track expense.id) {
+                <div class="flex justify-between items-center p-3 rounded-lg hover:bg-gray-50 transition-colors duration-150 animate-fade-in"
+                     [style.animation-delay]="$index * 100 + 'ms'">
+                  <div>
+                    <p class="font-medium text-gray-900">{{expense.description}}</p>
+                    <p class="text-sm text-gray-500">{{expense.date | date:'MMM d, y'}}</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="font-medium text-blue-600">{{expense.amount | currency:'GBP':'symbol':'1.2-2':'en-GB'}}</p>
+                    <p class="text-sm text-gray-500">{{expense.category}}</p>
+                  </div>
+                </div>
+              }
+
+              @if (totalPages$ | async; as totalPages) {
+                @if (totalPages > 1) {
+                  <div class="flex justify-center items-center space-x-2 mt-4 pt-4 border-t border-gray-100">
+                    <button 
+                      (click)="previousPage()"
+                      [disabled]="currentPage === 0"
+                      class="p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <span class="text-sm text-gray-600">
+                      Page {{currentPage + 1}} of {{totalPages}}
+                    </span>
+                    <button 
+                      (click)="nextPage()"
+                      [disabled]="currentPage === totalPages - 1"
+                      class="p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                }
+              }
+            }
           </div>
         </div>
       </div>
@@ -106,14 +138,76 @@ import { Observable } from 'rxjs';
     }
   `]
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
+  private currentPageSubject = new BehaviorSubject<number>(0);
+  
   summary$: Observable<ExpenseSummary>;
+  paginatedExpenses$: Observable<Expense[]>;
+  totalPages$: Observable<number>;
+  itemsPerPage = 3;
 
   constructor(private expenseService: ExpenseService) {
-    this.summary$ = this.expenseService.getExpenseSummary();
+    // Get and share the summary stream
+    this.summary$ = this.expenseService.getExpenseSummary().pipe(
+      distinctUntilChanged((prev, curr) => 
+        JSON.stringify(prev.recentExpenses) === JSON.stringify(curr.recentExpenses)
+      ),
+      shareReplay(1)
+    );
+
+    // Calculate total pages
+    this.totalPages$ = this.summary$.pipe(
+      map(summary => Math.ceil((summary.recentExpenses?.length || 0) / this.itemsPerPage)),
+      distinctUntilChanged(),
+      takeUntil(this.destroy$)
+    );
+
+    // Create paginated expenses stream
+    this.paginatedExpenses$ = combineLatest([
+      this.summary$,
+      this.currentPageSubject.pipe(distinctUntilChanged())
+    ]).pipe(
+      map(([summary, page]) => {
+        if (!summary?.recentExpenses?.length) return [];
+        const start = page * this.itemsPerPage;
+        const end = start + this.itemsPerPage;
+        return summary.recentExpenses.slice(start, end);
+      }),
+      takeUntil(this.destroy$)
+    );
+
+    // Reset to first page when data changes
+    this.summary$.pipe(
+      distinctUntilChanged((prev, curr) => 
+        prev.recentExpenses.length === curr.recentExpenses.length
+      ),
+      takeUntil(this.destroy$)
+    ).subscribe(() => {
+      if (this.currentPage !== 0) {
+        this.currentPageSubject.next(0);
+      }
+    });
   }
 
   ngOnInit(): void {}
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  get currentPage(): number {
+    return this.currentPageSubject.value;
+  }
+
+  nextPage(): void {
+    this.currentPageSubject.next(this.currentPage + 1);
+  }
+
+  previousPage(): void {
+    this.currentPageSubject.next(this.currentPage - 1);
+  }
 
   getCategories(summary: ExpenseSummary | null): Array<{ name: string; amount: number; percentage: number }> {
     if (!summary) return [];

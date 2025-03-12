@@ -9,10 +9,15 @@ import { v4 as uuidv4 } from 'uuid';
 export class ExpenseService {
   private expenses = new BehaviorSubject<Expense[]>([]);
   expenses$ = this.expenses.asObservable();
+  private summarySubject = new BehaviorSubject<ExpenseSummary>({ totalAmount: 0, categoryBreakdown: {}, recentExpenses: [] });
   private readonly STORAGE_KEY = 'expenses';
 
   constructor() {
     this.loadExpenses();
+    // Initialize summary when expenses change
+    this.expenses$.subscribe(expenses => {
+      this.updateSummary(expenses);
+    });
   }
 
   private loadExpenses(): void {
@@ -28,6 +33,29 @@ export class ExpenseService {
 
   private saveExpenses(): void {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.expenses.value));
+  }
+
+  private updateSummary(expenses: Expense[]): void {
+    const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+    const categoryBreakdown = expenses.reduce((acc, exp) => {
+      const category = exp.category as ExpenseCategory;
+      acc[category] = (acc[category] || 0) + exp.amount;
+      return acc;
+    }, {} as { [key in ExpenseCategory]?: number });
+
+    const recentExpenses = [...expenses]
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
+      .slice(0, 10); // Keep more items for pagination
+
+    this.summarySubject.next({
+      totalAmount,
+      categoryBreakdown,
+      recentExpenses
+    });
+  }
+
+  getExpenseSummary(): Observable<ExpenseSummary> {
+    return this.summarySubject.asObservable();
   }
 
   addExpense(expense: Omit<Expense, 'id'>): void {
@@ -46,7 +74,7 @@ export class ExpenseService {
   updateExpense(expense: Expense): void {
     const currentExpenses = this.expenses.value;
     const updatedExpenses = currentExpenses.map(e => 
-      e.id === expense.id ? expense : e
+      e.id === expense.id ? { ...expense, date: new Date(expense.date) } : e
     );
     this.expenses.next(updatedExpenses);
     this.saveExpenses();
@@ -57,29 +85,6 @@ export class ExpenseService {
     const updatedExpenses = currentExpenses.filter(e => e.id !== id);
     this.expenses.next(updatedExpenses);
     this.saveExpenses();
-  }
-
-  getExpenseSummary(): Observable<ExpenseSummary> {
-    return this.expenses$.pipe(
-      map(expenses => {
-        const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-        const categoryBreakdown = expenses.reduce((acc, exp) => {
-          const category = exp.category as ExpenseCategory;
-          acc[category] = (acc[category] || 0) + exp.amount;
-          return acc;
-        }, {} as { [key in ExpenseCategory]?: number });
-
-        const recentExpenses = [...expenses]
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 5);
-
-        return {
-          totalAmount,
-          categoryBreakdown,
-          recentExpenses
-        };
-      })
-    );
   }
 
   getExpensesByCategory(category?: ExpenseCategory): Observable<Expense[]> | { category: string; amount: number }[] {
