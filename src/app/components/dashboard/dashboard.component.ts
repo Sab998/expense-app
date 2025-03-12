@@ -22,7 +22,7 @@ import { Observable } from 'rxjs';
             </div>
           </div>
           <p class="mt-4 text-3xl font-bold text-blue-600">
-            {{(summary$ | async)?.totalAmount | currency}}
+            {{(summary$ | async)?.totalAmount | currency:'GBP':'symbol':'1.2-2':'en-GB'}}
           </p>
         </div>
 
@@ -45,7 +45,7 @@ import { Observable } from 'rxjs';
                 <p class="text-sm text-gray-500">{{expense.date | date:'MMM d, y'}}</p>
               </div>
               <div class="text-right">
-                <p class="font-medium text-blue-600">{{expense.amount | currency}}</p>
+                <p class="font-medium text-blue-600">{{expense.amount | currency:'GBP':'symbol':'1.2-2':'en-GB'}}</p>
                 <p class="text-sm text-gray-500">{{expense.category}}</p>
               </div>
             </div>
@@ -70,7 +70,7 @@ import { Observable } from 'rxjs';
                [style.animation-delay]="i * 100 + 'ms'">
             <div class="flex justify-between mb-1">
               <span class="text-sm font-medium text-gray-900">{{category.name}}</span>
-              <span class="text-sm font-medium text-gray-900">{{category.amount | currency}}</span>
+              <span class="text-sm font-medium text-gray-900">{{category.amount | currency:'GBP':'symbol':'1.2-2':'en-GB'}}</span>
             </div>
             <div class="overflow-hidden h-2 text-xs flex rounded-full bg-gray-100">
               <div

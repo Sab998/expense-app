@@ -1,11 +1,15 @@
 import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, registerLocaleData } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { ExpenseFormComponent } from './components/expense-form/expense-form.component';
 import { ExpenseListComponent } from './components/expense-list/expense-list.component';
 import { DashboardComponent } from './components/dashboard/dashboard.component';
 import { ExpenseService } from './services/expense.service';
 import { Expense } from './models/expense.model';
+import localeGb from '@angular/common/locales/en-GB';
+
+// Register the locale data for British Pound
+registerLocaleData(localeGb, 'en-GB');
 
 @Component({
   selector: 'app-root',

@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable, map } from 'rxjs';
 import { Expense, ExpenseCategory, ExpenseSummary } from '../models/expense.model';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable({
   providedIn: 'root'
@@ -8,28 +9,38 @@ import { Expense, ExpenseCategory, ExpenseSummary } from '../models/expense.mode
 export class ExpenseService {
   private expenses = new BehaviorSubject<Expense[]>([]);
   expenses$ = this.expenses.asObservable();
+  private readonly STORAGE_KEY = 'expenses';
 
   constructor() {
-    // Load expenses from localStorage on initialization
-    const savedExpenses = localStorage.getItem('expenses');
-    if (savedExpenses) {
-      this.expenses.next(JSON.parse(savedExpenses));
+    this.loadExpenses();
+  }
+
+  private loadExpenses(): void {
+    const storedExpenses = localStorage.getItem(this.STORAGE_KEY);
+    if (storedExpenses) {
+      this.expenses.next(JSON.parse(storedExpenses).map((expense: any) => ({
+        ...expense,
+        date: new Date(expense.date),
+        amount: Number(expense.amount) // Ensure amount is a number
+      })));
     }
   }
 
-  private saveToLocalStorage(expenses: Expense[]): void {
-    localStorage.setItem('expenses', JSON.stringify(expenses));
+  private saveExpenses(): void {
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.expenses.value));
   }
 
   addExpense(expense: Omit<Expense, 'id'>): void {
-    const newExpense = {
+    const newExpense: Expense = {
       ...expense,
-      id: crypto.randomUUID()
+      id: uuidv4(),
+      amount: Number(expense.amount), // Ensure amount is a number
+      date: new Date(expense.date)
     };
     const currentExpenses = this.expenses.value;
     const updatedExpenses = [...currentExpenses, newExpense];
     this.expenses.next(updatedExpenses);
-    this.saveToLocalStorage(updatedExpenses);
+    this.saveExpenses();
   }
 
   updateExpense(expense: Expense): void {
@@ -38,14 +49,14 @@ export class ExpenseService {
       e.id === expense.id ? expense : e
     );
     this.expenses.next(updatedExpenses);
-    this.saveToLocalStorage(updatedExpenses);
+    this.saveExpenses();
   }
 
   deleteExpense(id: string): void {
     const currentExpenses = this.expenses.value;
     const updatedExpenses = currentExpenses.filter(e => e.id !== id);
     this.expenses.next(updatedExpenses);
-    this.saveToLocalStorage(updatedExpenses);
+    this.saveExpenses();
   }
 
   getExpenseSummary(): Observable<ExpenseSummary> {
@@ -71,9 +82,44 @@ export class ExpenseService {
     );
   }
 
-  getExpensesByCategory(category: ExpenseCategory): Observable<Expense[]> {
-    return this.expenses$.pipe(
-      map(expenses => expenses.filter(e => e.category === category))
-    );
+  getExpensesByCategory(category?: ExpenseCategory): Observable<Expense[]> | { category: string; amount: number }[] {
+    if (category) {
+      // Return filtered expenses as Observable when category is provided
+      return this.expenses$.pipe(
+        map(expenses => expenses.filter(e => e.category === category))
+      );
+    } else {
+      // Return category summary when no category is provided
+      const categoryMap = new Map<string, number>();
+      
+      this.expenses.value
+        .filter(expense => expense.category !== 'Income')
+        .forEach(expense => {
+          const currentAmount = categoryMap.get(expense.category) || 0;
+          categoryMap.set(expense.category, currentAmount + expense.amount);
+        });
+
+      return Array.from(categoryMap.entries()).map(([category, amount]) => ({
+        category,
+        amount
+      }));
+    }
+  }
+
+  // Helper methods for calculations
+  getTotalIncome(): number {
+    return this.expenses.value
+      .filter(expense => expense.category === 'Income')
+      .reduce((sum, expense) => sum + expense.amount, 0);
+  }
+
+  getTotalExpenses(): number {
+    return this.expenses.value
+      .filter(expense => expense.category !== 'Income')
+      .reduce((sum, expense) => sum + expense.amount, 0);
+  }
+
+  getBalance(): number {
+    return this.getTotalIncome() - this.getTotalExpenses();
   }
 } 

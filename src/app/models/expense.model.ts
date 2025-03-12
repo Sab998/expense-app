@@ -1,13 +1,22 @@
+export type ExpenseCategory = 
+  | 'Income'
+  | 'Food'
+  | 'Transportation'
+  | 'Housing'
+  | 'Utilities'
+  | 'Entertainment'
+  | 'Shopping'
+  | 'Healthcare'
+  | 'Other';
+
 export interface Expense {
   id: string;
   description: string;
   amount: number;
+  category: ExpenseCategory;
   date: Date;
-  category: string;
   notes?: string;
 }
-
-export type ExpenseCategory = 'Food' | 'Transportation' | 'Housing' | 'Utilities' | 'Entertainment' | 'Shopping' | 'Healthcare' | 'Other';
 
 export interface ExpenseSummary {
   totalAmount: number;
