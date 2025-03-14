@@ -1,13 +1,14 @@
-export type ExpenseCategory = 
-  | 'Income'
-  | 'Food'
-  | 'Transportation'
-  | 'Housing'
-  | 'Utilities'
-  | 'Entertainment'
-  | 'Shopping'
-  | 'Healthcare'
-  | 'Other';
+export enum ExpenseCategory {
+  Income = 'Income',
+  Food = 'Food',
+  Transportation = 'Transportation',
+  Housing = 'Housing',
+  Utilities = 'Utilities',
+  Entertainment = 'Entertainment',
+  Shopping = 'Shopping',
+  Healthcare = 'Healthcare',
+  Other = 'Other'
+}
 
 export interface Expense {
   id: string;
@@ -16,7 +17,7 @@ export interface Expense {
   category: ExpenseCategory;
   date: Date;
   notes?: string;
-  receipt: {
+  receipt?: {
     fileName: string;
     fileUrl: string;
     uploadDate: Date;

@@ -1,15 +1,16 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ExpenseService } from '../../services/expense.service';
 import { Expense } from '../../models/expense.model';
 import { FormsModule } from '@angular/forms';
-import { map } from 'rxjs/operators';
-import { SafeUrlPipe } from '../../pipes/safe-url.pipe';
+import { map, Observable, BehaviorSubject, combineLatest, Subject } from 'rxjs';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
+import { takeUntil } from 'rxjs/operators';
 
 @Component({
   selector: 'app-expense-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, SafeUrlPipe],
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="space-y-4">
       <div class="flex justify-between items-center">
@@ -24,6 +25,7 @@ import { SafeUrlPipe } from '../../pipes/safe-url.pipe';
           <input
             type="text"
             [(ngModel)]="searchTerm"
+            (ngModelChange)="onSearchTermChange()"
             placeholder="Search expenses..."
             class="pl-8 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
           />
@@ -134,7 +136,7 @@ import { SafeUrlPipe } from '../../pipes/safe-url.pipe';
       <!-- Receipt Preview Modal -->
       @if (selectedReceipt) {
         <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
+          <div class="bg-white rounded-lg p-6 max-w-4xl w-full mx-4">
             <div class="flex justify-between items-center mb-4">
               <h3 class="text-lg font-medium text-gray-900">Receipt Preview</h3>
               <button
@@ -146,16 +148,48 @@ import { SafeUrlPipe } from '../../pipes/safe-url.pipe';
                 </svg>
               </button>
             </div>
-            <div class="flex justify-center">
+            <div class="flex flex-col items-center">
               @if (selectedReceipt.fileUrl.endsWith('.pdf')) {
-                <iframe [src]="selectedReceipt.fileUrl | safeUrl" class="w-full h-[600px]"></iframe>
+                <div class="w-full h-[600px] bg-gray-100 rounded-lg overflow-hidden">
+                  <object
+                    [data]="getSafeUrl(selectedReceipt.fileUrl)"
+                    type="application/pdf"
+                    class="w-full h-full"
+                  >
+                    <div class="flex flex-col items-center justify-center h-full">
+                      <p class="text-gray-600">Unable to display PDF directly.</p>
+                      <a
+                        [href]="selectedReceipt.fileUrl"
+                        target="_blank"
+                        class="mt-2 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                      >
+                        Open PDF in new tab
+                      </a>
+                    </div>
+                  </object>
+                </div>
               } @else {
-                <img [src]="selectedReceipt.fileUrl" alt="Receipt" class="max-h-[600px] object-contain"/>
+                <img 
+                  [src]="getSafeUrl(selectedReceipt.fileUrl)" 
+                  alt="Receipt" 
+                  class="max-h-[600px] object-contain rounded-lg shadow-lg"
+                />
               }
-            </div>
-            <div class="mt-4 text-sm text-gray-500">
-              <p>Uploaded on: {{ selectedReceipt.uploadDate | date:'medium' }}</p>
-              <p>File name: {{ selectedReceipt.fileName }}</p>
+              <div class="mt-4 text-sm text-gray-500 w-full">
+                <div class="flex justify-between items-center bg-gray-50 p-3 rounded-md">
+                  <p>Uploaded on: {{ selectedReceipt.uploadDate | date:'medium' }}</p>
+                  <p>File name: {{ selectedReceipt.fileName }}</p>
+                  @if (selectedReceipt.fileUrl.endsWith('.pdf')) {
+                    <a
+                      [href]="selectedReceipt.fileUrl"
+                      target="_blank"
+                      class="text-primary-600 hover:text-primary-700 font-medium"
+                    >
+                      Download PDF
+                    </a>
+                  }
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -164,9 +198,13 @@ import { SafeUrlPipe } from '../../pipes/safe-url.pipe';
   `,
   styles: []
 })
-export class ExpenseListComponent implements OnInit {
+export class ExpenseListComponent implements OnInit, OnDestroy {
+  @Output() editExpense = new EventEmitter<Expense>();
+  
+  private destroy$ = new Subject<void>();
   searchTerm: string = '';
-  filteredExpenses$;
+  private searchTermSubject = new BehaviorSubject<string>('');
+  filteredExpenses$: Observable<Expense[]>;
   selectedReceipt: {
     fileUrl: string;
     fileName: string;
@@ -185,26 +223,46 @@ export class ExpenseListComponent implements OnInit {
     Other: '#6B7280'
   };
 
-  constructor(private expenseService: ExpenseService) {
-    this.filteredExpenses$ = this.expenseService.expenses$.pipe(
-      map(expenses => 
+  constructor(
+    private expenseService: ExpenseService,
+    private sanitizer: DomSanitizer
+  ) {
+    this.filteredExpenses$ = combineLatest([
+      this.expenseService.expenses$,
+      this.searchTermSubject
+    ]).pipe(
+      map(([expenses, searchTerm]) => 
         expenses.filter(expense =>
-          expense.description.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
-          expense.category.toLowerCase().includes(this.searchTerm.toLowerCase())
+          expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          expense.category.toLowerCase().includes(searchTerm.toLowerCase())
         )
-      )
+      ),
+      takeUntil(this.destroy$)
     );
   }
 
-  ngOnInit(): void {}
-
-  getCategoryBgColor(category: string): string {
-    const color = this.categoryColors[category] || this.categoryColors['Other'];
-    return `${color}20`; // 20 is the hex value for 12% opacity
+  ngOnInit(): void {
+    this.searchTermSubject.next(this.searchTerm);
   }
 
-  getCategoryTextColor(category: string): string {
-    return this.categoryColors[category] || this.categoryColors['Other'];
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  onSearchTermChange(): void {
+    this.searchTermSubject.next(this.searchTerm);
+  }
+
+  onEdit(expense: Expense): void {
+    console.log('Editing expense:', expense);
+    this.editExpense.emit(expense);
+  }
+
+  onDelete(id: string): void {
+    if (confirm('Are you sure you want to delete this expense?')) {
+      this.expenseService.deleteExpense(id);
+    }
   }
 
   viewReceipt(receipt: { fileUrl: string; fileName: string; uploadDate: Date }): void {
@@ -215,11 +273,15 @@ export class ExpenseListComponent implements OnInit {
     this.selectedReceipt = null;
   }
 
-  onDelete(id: string): void {
-    this.expenseService.deleteExpense(id);
+  getSafeUrl(url: string): SafeUrl {
+    return this.sanitizer.bypassSecurityTrustUrl(url);
   }
 
-  onEdit(expense: Expense): void {
-    // Implementation for edit functionality
+  getCategoryBgColor(category: string): string {
+    return this.categoryColors[category] || this.categoryColors['Other'];
+  }
+
+  getCategoryTextColor(category: string): string {
+    return '#FFFFFF';
   }
 } 

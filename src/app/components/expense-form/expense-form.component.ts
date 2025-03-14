@@ -10,6 +10,13 @@ import { Expense, ExpenseCategory } from '../../models/expense.model';
   template: `
     <form [formGroup]="expenseForm" (ngSubmit)="onSubmit()" class="space-y-4">
       <div>
+      <h2 class="text-lg font-medium text-gray-900 flex items-center space-x-2 mb-4 mt-3">
+          <svg class="h-5 w-5 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          <span>Add Expense</span>
+        </h2>
         <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
         <input
           type="text"
@@ -82,7 +89,9 @@ import { Expense, ExpenseCategory } from '../../models/expense.model';
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-2">
           Receipt
-          <span class="text-red-500">*</span>
+          @if (!expense) {
+            <span class="text-red-500">*</span>
+          }
         </label>
         <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-primary-500 transition-colors duration-200"
              [class.border-red-500]="showReceiptError && !hasReceipt"
@@ -156,7 +165,7 @@ import { Expense, ExpenseCategory } from '../../models/expense.model';
       <div class="flex justify-end">
         <button
           type="submit"
-          [disabled]="expenseForm.invalid || isSubmitting || !hasReceipt"
+          [disabled]="expenseForm.invalid || isSubmitting || (!hasReceipt && !expense)"
           class="flex items-center gap-2 px-6 py-2.5 text-white bg-primary-600 rounded-lg transition-all duration-200 transform hover:translate-y-[-2px] hover:shadow-lg disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed"
         >
           @if (isSubmitting) {
@@ -201,7 +210,36 @@ import { Expense, ExpenseCategory } from '../../models/expense.model';
   `]
 })
 export class ExpenseFormComponent implements OnInit {
-  @Input() expense?: Expense;
+  @Input() set expense(value: Expense | undefined) {
+    if (value) {
+      const date = new Date(value.date);
+      const formattedDate = date.toISOString().split('T')[0];
+      
+      this.expenseForm.patchValue({
+        description: value.description,
+        amount: value.amount,
+        category: value.category,
+        date: formattedDate
+      });
+
+      // If editing and there's an existing receipt
+      if (value.receipt) {
+        this.previewUrl = value.receipt.fileUrl;
+        this.hasReceipt = true;
+      } else {
+        this.previewUrl = null;
+        this.hasReceipt = false;
+      }
+    } else {
+      // Reset form for new expense
+      this.expenseForm.reset({
+        date: new Date().toISOString().split('T')[0]
+      });
+      this.previewUrl = null;
+      this.hasReceipt = false;
+    }
+  }
+
   @Output() submitExpense = new EventEmitter<Omit<Expense, 'id'>>();
 
   expenseForm: FormGroup;
@@ -221,24 +259,8 @@ export class ExpenseFormComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    if (this.expense) {
-      const date = new Date(this.expense.date);
-      const formattedDate = date.toISOString().split('T')[0];
-      
-      this.expenseForm.patchValue({
-        description: this.expense.description,
-        amount: this.expense.amount,
-        category: this.expense.category,
-        date: formattedDate
-      });
-
-      // If editing and there's an existing receipt
-      if (this.expense.receipt) {
-        this.previewUrl = this.expense.receipt.fileUrl;
-        this.hasReceipt = true;
-      }
-    } else {
-      // Set today's date as default
+    // Set today's date as default for new expenses
+    if (!this.expense) {
       const today = new Date();
       const formattedDate = today.toISOString().split('T')[0];
       this.expenseForm.patchValue({ date: formattedDate });
@@ -308,31 +330,42 @@ export class ExpenseFormComponent implements OnInit {
   }
 
   onSubmit(): void {
-    this.showReceiptError = !this.hasReceipt;
+    this.showReceiptError = !this.hasReceipt && !this.expense;
     
-    if (this.expenseForm.valid && this.hasReceipt) {
+    if (this.expenseForm.valid && (this.hasReceipt || this.expense)) {
       this.isSubmitting = true;
 
       // Create a new expense object with the form values and receipt info
       const formData = this.expenseForm.value;
       const expenseData = {
         ...formData,
-        receipt: {
-          fileName: this.selectedFile?.name || this.expense?.receipt?.fileName,
-          fileUrl: this.previewUrl || this.expense?.receipt?.fileUrl,
+        amount: Number(formData.amount),
+        date: new Date(formData.date),
+        receipt: this.selectedFile ? {
+          fileName: this.selectedFile.name,
+          fileUrl: this.previewUrl || '',
           uploadDate: new Date()
-        }
+        } : this.expense?.receipt || null
       };
+
+      console.log('Submitting expense data:', expenseData); // Debug log
 
       // Simulate loading state for better UX
       setTimeout(() => {
         this.submitExpense.emit(expenseData);
-        if (!this.expense) {
-          this.expenseForm.reset({
-            date: this.expenseForm.get('date')?.value
-          });
-          this.removeFile();
+        
+        // Reset form and state
+        this.expenseForm.reset({
+          date: this.expenseForm.get('date')?.value
+        });
+        this.removeFile();
+        
+        // Reset preview URL if we're editing
+        if (this.expense?.receipt) {
+          this.previewUrl = this.expense.receipt.fileUrl;
+          this.hasReceipt = true;
         }
+        
         this.isSubmitting = false;
       }, 600);
     }

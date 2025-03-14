@@ -1,7 +1,9 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, map } from 'rxjs';
-import { Expense, ExpenseCategory, ExpenseSummary } from '../models/expense.model';
+import { BehaviorSubject, Observable } from 'rxjs';
+import { Expense, ExpenseSummary } from '../models/expense.model';
+import { BudgetService } from './budget.service';
 import { v4 as uuidv4 } from 'uuid';
+import { map, tap } from 'rxjs/operators';
 
 @Injectable({
   providedIn: 'root'
@@ -9,73 +11,99 @@ import { v4 as uuidv4 } from 'uuid';
 export class ExpenseService {
   private expenses = new BehaviorSubject<Expense[]>([]);
   expenses$ = this.expenses.asObservable();
-  private summarySubject = new BehaviorSubject<ExpenseSummary>({ totalAmount: 0, categoryBreakdown: {}, recentExpenses: [] });
   private readonly STORAGE_KEY = 'expenses';
 
-  constructor() {
+  constructor(private budgetService: BudgetService) {
     this.loadExpenses();
-    // Initialize summary when expenses change
-    this.expenses$.subscribe(expenses => {
-      this.updateSummary(expenses);
-    });
+    // Subscribe to expense changes to update budget
+    this.expenses$.pipe(
+      tap(() => this.updateBudgetTotal())
+    ).subscribe();
   }
 
   private loadExpenses(): void {
-    const storedExpenses = localStorage.getItem(this.STORAGE_KEY);
-    if (storedExpenses) {
-      this.expenses.next(JSON.parse(storedExpenses).map((expense: any) => ({
-        ...expense,
-        date: new Date(expense.date),
-        amount: Number(expense.amount) // Ensure amount is a number
-      })));
+    try {
+      const storedExpenses = localStorage.getItem(this.STORAGE_KEY);
+      if (storedExpenses) {
+        const expensesData = JSON.parse(storedExpenses);
+        const parsedExpenses = expensesData.map((expense: any) => ({
+          ...expense,
+          date: new Date(expense.date),
+          amount: Number(expense.amount)
+        }));
+        this.expenses.next(parsedExpenses);
+        console.log('Loaded expenses:', parsedExpenses);
+      }
+    } catch (error) {
+      console.error('Error loading expenses:', error);
+      this.expenses.next([]);
     }
   }
 
   private saveExpenses(): void {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.expenses.value));
+    try {
+      const expensesToSave = this.expenses.value.map(expense => ({
+        ...expense,
+        date: expense.date.toISOString(),
+        amount: Number(expense.amount)
+      }));
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(expensesToSave));
+      console.log('Saved expenses:', expensesToSave);
+    } catch (error) {
+      console.error('Error saving expenses:', error);
+    }
   }
 
-  private updateSummary(expenses: Expense[]): void {
-    const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const categoryBreakdown = expenses.reduce((acc, exp) => {
-      const category = exp.category as ExpenseCategory;
-      acc[category] = (acc[category] || 0) + exp.amount;
-      return acc;
-    }, {} as { [key in ExpenseCategory]?: number });
-
-    const recentExpenses = [...expenses]
-      .sort((a, b) => b.date.getTime() - a.date.getTime())
-      .slice(0, 10); // Keep more items for pagination
-
-    this.summarySubject.next({
-      totalAmount,
-      categoryBreakdown,
-      recentExpenses
-    });
+  private updateBudgetTotal(): void {
+    const totalSpent = this.expenses.value.reduce((sum, expense) => sum + expense.amount, 0);
+    this.budgetService.updateTotalSpent(totalSpent);
   }
 
   getExpenseSummary(): Observable<ExpenseSummary> {
-    return this.summarySubject.asObservable();
+    return this.expenses$.pipe(
+      map(expenses => {
+        const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+        const categoryBreakdown = expenses.reduce((acc, exp) => {
+          acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
+          return acc;
+        }, {} as { [key: string]: number });
+
+        const recentExpenses = [...expenses]
+          .sort((a, b) => b.date.getTime() - a.date.getTime());
+
+        return { totalAmount, categoryBreakdown, recentExpenses };
+      })
+    );
   }
 
   addExpense(expense: Omit<Expense, 'id'>): void {
     const newExpense: Expense = {
       ...expense,
       id: uuidv4(),
-      amount: Number(expense.amount), // Ensure amount is a number
-      date: new Date(expense.date)
+      amount: Number(expense.amount),
+      date: expense.date instanceof Date ? expense.date : new Date(expense.date)
     };
+    
     const currentExpenses = this.expenses.value;
-    const updatedExpenses = [...currentExpenses, newExpense];
+    const updatedExpenses = [newExpense, ...currentExpenses];
     this.expenses.next(updatedExpenses);
     this.saveExpenses();
   }
 
-  updateExpense(expense: Expense): void {
+  updateExpense(id: string, expense: Partial<Expense>): void {
+    console.log('Updating expense:', { id, expense }); // Debug log
     const currentExpenses = this.expenses.value;
     const updatedExpenses = currentExpenses.map(e => 
-      e.id === expense.id ? { ...expense, date: new Date(expense.date) } : e
+      e.id === id ? { 
+        ...e, 
+        ...expense, 
+        amount: Number(expense.amount),
+        date: expense.date ? (expense.date instanceof Date ? expense.date : new Date(expense.date)) : e.date,
+        receipt: expense.receipt || e.receipt // Preserve existing receipt if no new one provided
+      } : e
     );
+    
+    console.log('Updated expenses:', updatedExpenses); // Debug log
     this.expenses.next(updatedExpenses);
     this.saveExpenses();
   }
@@ -87,44 +115,13 @@ export class ExpenseService {
     this.saveExpenses();
   }
 
-  getExpensesByCategory(category?: ExpenseCategory): Observable<Expense[]> | { category: string; amount: number }[] {
-    if (category) {
-      // Return filtered expenses as Observable when category is provided
-      return this.expenses$.pipe(
-        map(expenses => expenses.filter(e => e.category === category))
-      );
-    } else {
-      // Return category summary when no category is provided
-      const categoryMap = new Map<string, number>();
-      
-      this.expenses.value
-        .filter(expense => expense.category !== 'Income')
-        .forEach(expense => {
-          const currentAmount = categoryMap.get(expense.category) || 0;
-          categoryMap.set(expense.category, currentAmount + expense.amount);
-        });
-
-      return Array.from(categoryMap.entries()).map(([category, amount]) => ({
-        category,
-        amount
-      }));
-    }
+  getExpenses(): Observable<Expense[]> {
+    return this.expenses$.pipe(
+      map(expenses => [...expenses].sort((a, b) => b.date.getTime() - a.date.getTime()))
+    );
   }
 
-  // Helper methods for calculations
-  getTotalIncome(): number {
-    return this.expenses.value
-      .filter(expense => expense.category === 'Income')
-      .reduce((sum, expense) => sum + expense.amount, 0);
-  }
-
-  getTotalExpenses(): number {
-    return this.expenses.value
-      .filter(expense => expense.category !== 'Income')
-      .reduce((sum, expense) => sum + expense.amount, 0);
-  }
-
-  getBalance(): number {
-    return this.getTotalIncome() - this.getTotalExpenses();
+  getExpensesByCategory(category: string): Expense[] {
+    return this.expenses.value.filter(expense => expense.category === category);
   }
 } 
