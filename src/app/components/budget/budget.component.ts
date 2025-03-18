@@ -2,7 +2,8 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BudgetService } from '../../services/budget.service';
-import { Budget } from '../../models/budget.model';
+import { Budget, CategoryBudget } from '../../models/budget.model';
+import { ExpenseCategory } from '../../models/expense.model';
 import { Observable } from 'rxjs';
 
 @Component({
@@ -13,123 +14,227 @@ import { Observable } from 'rxjs';
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       <div class="flex items-center justify-between mb-6">
         <h3 class="text-lg font-medium text-gray-900">Budget Overview</h3>
-        <div class="p-2 bg-indigo-50 rounded-lg">
-          <svg class="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <button
+          (click)="showCategoryBudgetForm = true"
+          class="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-2"
+        >
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-        </div>
+          Add Category Budget
+        </button>
       </div>
 
       @if (budget$ | async; as budget) {
-        <div class="space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <!-- Total Budget -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <p class="text-sm text-gray-600">Total Budget</p>
-              <p class="text-2xl font-bold text-gray-900">{{ budget.totalBudget | currency:'GBP':'symbol':'1.2-2':'en-GB' }}</p>
+        <div class="space-y-6">
+          <!-- Overall Budget -->
+          <div class="space-y-4">
+            <h4 class="text-sm font-medium text-gray-900">Overall Budget</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+              <!-- Total Budget -->
+              <div class="bg-gray-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">Total Budget</p>
+                <p class="text-2xl font-bold text-gray-900">{{ budget.totalBudget | currency:'GBP':'symbol':'1.2-2':'en-GB' }}</p>
+               <!-- <p class="text-xs text-gray-500 mt-1">Sum of all category budgets</p> -->
+              </div>
+
+              
+
+              <!-- Remaining -->
+              <div class="bg-gray-50 rounded-lg p-4">
+                <p class="text-sm text-gray-600">Remaining</p>
+                <p class="text-2xl font-bold" [class.text-green-600]="getRemainingBudget() >= 0" [class.text-red-600]="getRemainingBudget() < 0">
+                  {{ getRemainingBudget() | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
+                </p>
+              </div>
             </div>
 
-            <!-- Total Spent -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <p class="text-sm text-gray-600">Total Spent</p>
-              <p class="text-2xl font-bold text-gray-900">{{ budget.totalSpent | currency:'GBP':'symbol':'1.2-2':'en-GB' }}</p>
-            </div>
-
-            <!-- Remaining -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <p class="text-sm text-gray-600">Remaining</p>
-              <p class="text-2xl font-bold" [class.text-green-600]="getRemainingBudget() >= 0" [class.text-red-600]="getRemainingBudget() < 0">
-                {{ getRemainingBudget() | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
-              </p>
+            <!-- Overall Progress Bar -->
+            <div class="space-y-2">
+              <div class="flex justify-between text-sm">
+                <span class="text-gray-600">Overall Budget Usage</span>
+                <span class="text-gray-900">{{ getBudgetUsagePercentage() | number:'1.0-1' }}%</span>
+              </div>
+              <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div class="h-full transition-all duration-500"
+                     [class.bg-green-500]="getBudgetUsagePercentage() < 80"
+                     [class.bg-yellow-500]="getBudgetUsagePercentage() >= 80 && getBudgetUsagePercentage() < 100"
+                     [class.bg-red-500]="getBudgetUsagePercentage() >= 100"
+                     [style.width.%]="Math.min(getBudgetUsagePercentage(), 100)">
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- Progress Bar -->
-          <div class="space-y-2">
-            <div class="flex justify-between text-sm">
-              <span class="text-gray-600">Budget Usage</span>
-              <span class="text-gray-900">{{ getBudgetUsagePercentage() | number:'1.0-1' }}%</span>
-            </div>
-            <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div class="h-full transition-all duration-500"
-                   [class.bg-green-500]="getBudgetUsagePercentage() < 80"
-                   [class.bg-yellow-500]="getBudgetUsagePercentage() >= 80 && getBudgetUsagePercentage() < 100"
-                   [class.bg-red-500]="getBudgetUsagePercentage() >= 100"
-                   [style.width.%]="Math.min(getBudgetUsagePercentage(), 100)">
+          <!-- Category Budgets -->
+          <div class="space-y-4">
+            <h4 class="text-sm font-medium text-gray-900">Category Budgets</h4>
+
+            @if (budget.categoryBudgets.length > 0) {
+              <div class="h-[230px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                @for (categoryBudget of budget.categoryBudgets; track categoryBudget.category) {
+                  <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div class="flex justify-between items-center">
+                      <span class="font-medium text-gray-900">{{ categoryBudget.category }}</span>
+                      <button
+                        (click)="editCategoryBudget(categoryBudget)"
+                        class="text-sm text-gray-600 hover:text-gray-900"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                      <div>
+                        <p class="text-sm text-gray-600">Budget</p>
+                        <p class="text-lg font-semibold text-gray-900">
+                          {{ categoryBudget.budgetAmount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
+                        </p>
+                      </div>
+                      <div>
+                        <p class="text-sm text-gray-600">Spent</p>
+                        <p class="text-lg font-semibold text-gray-900">
+                          {{ categoryBudget.spentAmount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
+                        </p>
+                      </div>
+                    </div>
+                    <div class="space-y-1">
+                      <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Usage</span>
+                        <span class="text-gray-900">
+                          {{ (categoryBudget.spentAmount / categoryBudget.budgetAmount * 100) | number:'1.0-1' }}%
+                        </span>
+                      </div>
+                      <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div class="h-full transition-all duration-500"
+                             [class.bg-green-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount < 0.8"
+                             [class.bg-yellow-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount >= 0.8 && categoryBudget.spentAmount / categoryBudget.budgetAmount < 1"
+                             [class.bg-red-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount >= 1"
+                             [style.width.%]="Math.min((categoryBudget.spentAmount / categoryBudget.budgetAmount * 100), 100)">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                }
               </div>
-            </div>
+            } @else {
+              <div class="text-center py-8 bg-gray-50 rounded-lg">
+                <p class="text-gray-600 mb-4">No category budgets set yet</p>
+                <button
+                  (click)="showCategoryBudgetForm = true"
+                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
+                >
+                  Add Your First Category Budget
+                </button>
+              </div>
+            }
           </div>
         </div>
       } @else {
         <div class="text-center py-8">
-          <p class="text-gray-600 mb-4">No budget set yet</p>
+          <p class="text-gray-600 mb-4">Start by adding a category budget</p>
           <button
-            (click)="setInitialBudget()"
+            (click)="showCategoryBudgetForm = true"
             class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
           >
-            Set Initial Budget
+            Add Category Budget
           </button>
         </div>
       }
 
-      @if (showBudgetForm) {
-        <div class="mt-6 p-4 bg-gray-50 rounded-lg">
-          <div class="flex items-center justify-between mb-4">
-            <h4 class="text-sm font-medium text-gray-900">Set New Budget</h4>
-            <button
-              (click)="showBudgetForm = false"
-              class="text-gray-400 hover:text-gray-500"
-            >
-              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class="flex gap-4">
-            <div class="flex-1">
-              <label for="budget" class="block text-sm font-medium text-gray-700">Amount</label>
-              <div class="mt-1 relative rounded-md shadow-sm">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span class="text-gray-500 sm:text-sm">£</span>
-                </div>
-                <input
-                  type="number"
-                  id="budget"
-                  [(ngModel)]="newBudgetAmount"
-                  class="pl-7 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                  placeholder="0.00"
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div class="flex items-end">
+      <!-- Category Budget Form -->
+      @if (showCategoryBudgetForm) {
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-medium text-gray-900">
+                {{ editingCategoryBudget ? 'Edit' : 'Add' }} Category Budget
+              </h3>
               <button
-                (click)="updateBudget()"
-                [disabled]="!newBudgetAmount || newBudgetAmount <= 0"
-                class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                (click)="closeCategoryBudgetForm()"
+                class="text-gray-400 hover:text-gray-500"
               >
-                Update
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label for="category" class="block text-sm font-medium text-gray-700">Category</label>
+                <select
+                  id="category"
+                  [(ngModel)]="selectedCategory"
+                  [disabled]="!!editingCategoryBudget"
+                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                >
+                  <option value="">Select a category</option>
+                  @for (category of availableCategories; track category) {
+                    <option [value]="category">{{ category }}</option>
+                  }
+                </select>
+              </div>
+              <div>
+                <label for="categoryBudget" class="block text-sm font-medium text-gray-700">Budget Amount</label>
+                <div class="mt-1 relative rounded-md shadow-sm">
+                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span class="text-gray-500 sm:text-sm">£</span>
+                  </div>
+                  <input
+                    type="number"
+                    id="categoryBudget"
+                    [(ngModel)]="categoryBudgetAmount"
+                    class="pl-7 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                    placeholder="0.00"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div class="flex justify-end">
+                <button
+                  (click)="saveCategoryBudget()"
+                  [disabled]="!canSaveCategoryBudget"
+                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {{ editingCategoryBudget ? 'Update' : 'Add' }} Budget
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      } @else {
-        <button
-          (click)="showBudgetForm = true"
-          class="mt-6 w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-        >
-          Update Budget
-        </button>
       }
     </div>
   `,
-  styles: []
+  styles: [`
+    .custom-scrollbar {
+      scrollbar-width: thin;
+      scrollbar-color: #CBD5E1 transparent;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background-color: #CBD5E1;
+      border-radius: 3px;
+    }
+    
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background-color: #94A3B8;
+    }
+  `]
 })
 export class BudgetComponent implements OnInit {
   protected readonly Math = Math;
   budget$: Observable<Budget | null>;
-  showBudgetForm = false;
-  newBudgetAmount: number | null = null;
+  showCategoryBudgetForm = false;
+  selectedCategory: ExpenseCategory | '' = '';
+  categoryBudgetAmount: number | null = null;
+  editingCategoryBudget: CategoryBudget | null = null;
   private currentBudget: Budget | null = null;
 
   constructor(private budgetService: BudgetService) {
@@ -141,16 +246,40 @@ export class BudgetComponent implements OnInit {
 
   ngOnInit(): void {}
 
-  setInitialBudget(): void {
-    this.showBudgetForm = true;
+  get availableCategories(): ExpenseCategory[] {
+    if (!this.currentBudget) return Object.values(ExpenseCategory);
+    
+    const usedCategories = new Set(this.currentBudget.categoryBudgets.map(cb => cb.category));
+    return Object.values(ExpenseCategory).filter(category => !usedCategories.has(category));
   }
 
-  updateBudget(): void {
-    if (this.newBudgetAmount && this.newBudgetAmount > 0) {
-      this.budgetService.setBudget(this.newBudgetAmount);
-      this.showBudgetForm = false;
-      this.newBudgetAmount = null;
+  get canSaveCategoryBudget(): boolean {
+    if (this.editingCategoryBudget) {
+      return this.categoryBudgetAmount !== null && this.categoryBudgetAmount > 0;
     }
+    return this.selectedCategory !== '' && this.categoryBudgetAmount !== null && this.categoryBudgetAmount > 0;
+  }
+
+  editCategoryBudget(categoryBudget: CategoryBudget): void {
+    this.editingCategoryBudget = categoryBudget;
+    this.selectedCategory = categoryBudget.category;
+    this.categoryBudgetAmount = categoryBudget.budgetAmount;
+    this.showCategoryBudgetForm = true;
+  }
+
+  saveCategoryBudget(): void {
+    if (!this.canSaveCategoryBudget) return;
+
+    const category = this.editingCategoryBudget ? this.editingCategoryBudget.category : this.selectedCategory as ExpenseCategory;
+    this.budgetService.setCategoryBudget(category, this.categoryBudgetAmount!);
+    this.closeCategoryBudgetForm();
+  }
+
+  closeCategoryBudgetForm(): void {
+    this.showCategoryBudgetForm = false;
+    this.editingCategoryBudget = null;
+    this.selectedCategory = '';
+    this.categoryBudgetAmount = null;
   }
 
   getRemainingBudget(): number {
@@ -158,7 +287,7 @@ export class BudgetComponent implements OnInit {
   }
 
   getBudgetUsagePercentage(): number {
-    if (!this.currentBudget) return 0;
+    if (!this.currentBudget || this.currentBudget.totalBudget === 0) return 0;
     return (this.currentBudget.totalSpent / this.currentBudget.totalBudget) * 100;
   }
 } 

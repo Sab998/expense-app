@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
-import { Expense, ExpenseSummary } from '../models/expense.model';
+import { Expense, ExpenseSummary, ExpenseCategory } from '../models/expense.model';
 import { BudgetService } from './budget.service';
 import { v4 as uuidv4 } from 'uuid';
 import { map, tap } from 'rxjs/operators';
@@ -17,7 +17,7 @@ export class ExpenseService {
     this.loadExpenses();
     // Subscribe to expense changes to update budget
     this.expenses$.pipe(
-      tap(() => this.updateBudgetTotal())
+      tap(() => this.updateBudgets())
     ).subscribe();
   }
 
@@ -54,9 +54,20 @@ export class ExpenseService {
     }
   }
 
-  private updateBudgetTotal(): void {
+  private updateBudgets(): void {
+    // Update total budget
     const totalSpent = this.expenses.value.reduce((sum, expense) => sum + expense.amount, 0);
     this.budgetService.updateTotalSpent(totalSpent);
+
+    // Update category budgets
+    const categoryTotals = this.expenses.value.reduce((acc, expense) => {
+      acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+      return acc;
+    }, {} as { [key in ExpenseCategory]: number });
+
+    Object.entries(categoryTotals).forEach(([category, amount]) => {
+      this.budgetService.updateCategorySpent(category as ExpenseCategory, amount);
+    });
   }
 
   getExpenseSummary(): Observable<ExpenseSummary> {
@@ -66,7 +77,7 @@ export class ExpenseService {
         const categoryBreakdown = expenses.reduce((acc, exp) => {
           acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
           return acc;
-        }, {} as { [key: string]: number });
+        }, {} as { [key in ExpenseCategory]?: number });
 
         const recentExpenses = [...expenses]
           .sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -91,7 +102,7 @@ export class ExpenseService {
   }
 
   updateExpense(id: string, expense: Partial<Expense>): void {
-    console.log('Updating expense:', { id, expense }); // Debug log
+    console.log('Updating expense:', { id, expense });
     const currentExpenses = this.expenses.value;
     const updatedExpenses = currentExpenses.map(e => 
       e.id === id ? { 
@@ -99,11 +110,11 @@ export class ExpenseService {
         ...expense, 
         amount: Number(expense.amount),
         date: expense.date ? (expense.date instanceof Date ? expense.date : new Date(expense.date)) : e.date,
-        receipt: expense.receipt || e.receipt // Preserve existing receipt if no new one provided
+        receipt: expense.receipt || e.receipt
       } : e
     );
     
-    console.log('Updated expenses:', updatedExpenses); // Debug log
+    console.log('Updated expenses:', updatedExpenses);
     this.expenses.next(updatedExpenses);
     this.saveExpenses();
   }
