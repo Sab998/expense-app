@@ -1,138 +1,122 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
-import { Expense, ExpenseSummary, ExpenseCategory } from '../models/expense.model';
+import { BehaviorSubject, Observable, combineLatest, map, take } from 'rxjs';
+import { Expense, ExpenseCategory, ExpenseSummary } from '../models/expense.model';
 import { BudgetService } from './budget.service';
-import { v4 as uuidv4 } from 'uuid';
-import { map, tap } from 'rxjs/operators';
+import { FiscalYearService } from './fiscal-year.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ExpenseService {
   private expenses = new BehaviorSubject<Expense[]>([]);
-  expenses$ = this.expenses.asObservable();
   private readonly STORAGE_KEY = 'expenses';
 
-  constructor(private budgetService: BudgetService) {
+  constructor(
+    private budgetService: BudgetService,
+    private fiscalYearService: FiscalYearService
+  ) {
     this.loadExpenses();
-    // Subscribe to expense changes to update budget
-    this.expenses$.pipe(
-      tap(() => this.updateBudgets())
-    ).subscribe();
   }
 
-  private loadExpenses(): void {
-    try {
-      const storedExpenses = localStorage.getItem(this.STORAGE_KEY);
-      if (storedExpenses) {
-        const expensesData = JSON.parse(storedExpenses);
-        const parsedExpenses = expensesData.map((expense: any) => ({
-          ...expense,
-          date: new Date(expense.date),
-          amount: Number(expense.amount)
-        }));
-        this.expenses.next(parsedExpenses);
-        console.log('Loaded expenses:', parsedExpenses);
-      }
-    } catch (error) {
-      console.error('Error loading expenses:', error);
-      this.expenses.next([]);
-    }
-  }
-
-  private saveExpenses(): void {
-    try {
-      const expensesToSave = this.expenses.value.map(expense => ({
-        ...expense,
-        date: expense.date.toISOString(),
-        amount: Number(expense.amount)
-      }));
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(expensesToSave));
-      console.log('Saved expenses:', expensesToSave);
-    } catch (error) {
-      console.error('Error saving expenses:', error);
-    }
-  }
-
-  private updateBudgets(): void {
-    // Update total budget
-    const totalSpent = this.expenses.value.reduce((sum, expense) => sum + expense.amount, 0);
-    this.budgetService.updateTotalSpent(totalSpent);
-
-    // Update category budgets
-    const categoryTotals = this.expenses.value.reduce((acc, expense) => {
-      acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
-      return acc;
-    }, {} as { [key in ExpenseCategory]: number });
-
-    Object.entries(categoryTotals).forEach(([category, amount]) => {
-      this.budgetService.updateCategorySpent(category as ExpenseCategory, amount);
-    });
-  }
-
-  getExpenseSummary(): Observable<ExpenseSummary> {
-    return this.expenses$.pipe(
-      map(expenses => {
-        const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-        const categoryBreakdown = expenses.reduce((acc, exp) => {
-          acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
-          return acc;
-        }, {} as { [key in ExpenseCategory]?: number });
-
-        const recentExpenses = [...expenses]
-          .sort((a, b) => b.date.getTime() - a.date.getTime());
-
-        return { totalAmount, categoryBreakdown, recentExpenses };
+  getExpenses(): Observable<Expense[]> {
+    return combineLatest([
+      this.expenses,
+      this.fiscalYearService.getCurrentFiscalYear()
+    ]).pipe(
+      map(([expenses, currentFiscalYear]) => {
+        if (!currentFiscalYear) return [];
+        return expenses.filter(expense => expense.fiscalYearId === currentFiscalYear.id);
       })
     );
   }
 
   addExpense(expense: Omit<Expense, 'id'>): void {
-    const newExpense: Expense = {
-      ...expense,
-      id: uuidv4(),
-      amount: Number(expense.amount),
-      date: expense.date instanceof Date ? expense.date : new Date(expense.date)
-    };
-    
-    const currentExpenses = this.expenses.value;
-    const updatedExpenses = [newExpense, ...currentExpenses];
-    this.expenses.next(updatedExpenses);
-    this.saveExpenses();
+    this.fiscalYearService.getCurrentFiscalYear().pipe(take(1)).subscribe(currentFiscalYear => {
+      if (!currentFiscalYear) return;
+
+      const newExpense: Expense = {
+        ...expense,
+        id: crypto.randomUUID(),
+        fiscalYearId: currentFiscalYear.id
+      };
+
+      const updatedExpenses = [...this.expenses.value, newExpense];
+      this.expenses.next(updatedExpenses);
+      this.saveExpenses();
+      this.updateBudgetSpentAmount(newExpense.category);
+    });
   }
 
-  updateExpense(id: string, expense: Partial<Expense>): void {
-    console.log('Updating expense:', { id, expense });
-    const currentExpenses = this.expenses.value;
-    const updatedExpenses = currentExpenses.map(e => 
-      e.id === id ? { 
-        ...e, 
-        ...expense, 
-        amount: Number(expense.amount),
-        date: expense.date ? (expense.date instanceof Date ? expense.date : new Date(expense.date)) : e.date,
-        receipt: expense.receipt || e.receipt
-      } : e
-    );
-    
-    console.log('Updated expenses:', updatedExpenses);
-    this.expenses.next(updatedExpenses);
-    this.saveExpenses();
+  updateExpense(id: string, expense: Omit<Expense, 'id'>): void {
+    this.fiscalYearService.getCurrentFiscalYear().pipe(take(1)).subscribe(currentFiscalYear => {
+      if (!currentFiscalYear) return;
+
+      const updatedExpenses = this.expenses.value.map(e =>
+        e.id === id ? { ...expense, id, fiscalYearId: currentFiscalYear.id } : e
+      );
+      this.expenses.next(updatedExpenses);
+      this.saveExpenses();
+      this.updateBudgetSpentAmounts();
+    });
   }
 
   deleteExpense(id: string): void {
-    const currentExpenses = this.expenses.value;
-    const updatedExpenses = currentExpenses.filter(e => e.id !== id);
+    const updatedExpenses = this.expenses.value.filter(e => e.id !== id);
     this.expenses.next(updatedExpenses);
     this.saveExpenses();
+    this.updateBudgetSpentAmounts();
   }
 
-  getExpenses(): Observable<Expense[]> {
-    return this.expenses$.pipe(
-      map(expenses => [...expenses].sort((a, b) => b.date.getTime() - a.date.getTime()))
+  getExpenseSummary(): Observable<ExpenseSummary> {
+    return this.getExpenses().pipe(
+      map(expenses => {
+        const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+        const categoryBreakdown = expenses.reduce((breakdown, expense) => {
+          const currentAmount = breakdown[expense.category] || 0;
+          return {
+            ...breakdown,
+            [expense.category]: currentAmount + expense.amount
+          };
+        }, {} as { [key in ExpenseCategory]?: number });
+
+        return {
+          totalAmount,
+          categoryBreakdown,
+          recentExpenses: expenses.slice(-5)
+        };
+      })
     );
   }
 
-  getExpensesByCategory(category: string): Expense[] {
-    return this.expenses.value.filter(expense => expense.category === category);
+  private updateBudgetSpentAmount(category: ExpenseCategory): void {
+    this.getExpenses().subscribe(expenses => {
+      const totalSpent = expenses
+        .filter(e => e.category === category)
+        .reduce((sum, e) => sum + e.amount, 0);
+      
+      this.budgetService.updateSpentAmount(category, totalSpent);
+    });
+  }
+
+  private updateBudgetSpentAmounts(): void {
+    Object.values(ExpenseCategory).forEach(category => {
+      this.updateBudgetSpentAmount(category);
+    });
+  }
+
+  private loadExpenses(): void {
+    const savedExpenses = localStorage.getItem(this.STORAGE_KEY);
+    if (savedExpenses) {
+      const expenses = JSON.parse(savedExpenses).map((e: any) => ({
+        ...e,
+        date: new Date(e.date)
+      }));
+      this.expenses.next(expenses);
+      this.updateBudgetSpentAmounts();
+    }
+  }
+
+  private saveExpenses(): void {
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.expenses.value));
   }
 } 

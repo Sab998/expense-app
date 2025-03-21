@@ -9,6 +9,7 @@ export interface CategoryBudget {
 
 export interface Budget {
   id: string;
+  fiscalYearId: string;
   totalBudget: number;
   totalSpent: number;
   lastUpdated: Date;

@@ -4,7 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { BudgetService } from '../../services/budget.service';
 import { Budget, CategoryBudget } from '../../models/budget.model';
 import { ExpenseCategory } from '../../models/expense.model';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
+import { FiscalYearService } from '../../services/fiscal-year.service';
 
 @Component({
   selector: 'app-budget',
@@ -16,7 +17,8 @@ import { Observable } from 'rxjs';
         <h3 class="text-lg font-medium text-gray-900">Budget Overview</h3>
         <button
           (click)="showCategoryBudgetForm = true"
-          class="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-2"
+          [disabled]="!hasFiscalYear"
+          class="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -25,120 +27,122 @@ import { Observable } from 'rxjs';
         </button>
       </div>
 
-      @if (budget$ | async; as budget) {
-        <div class="space-y-6">
-          <!-- Overall Budget -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-medium text-gray-900">Overall Budget</h4>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <!-- Total Budget -->
-              <div class="bg-gray-50 rounded-lg p-4">
-                <p class="text-sm text-gray-600">Total Budget</p>
-                <p class="text-2xl font-bold text-gray-900">{{ budget.totalBudget | currency:'GBP':'symbol':'1.2-2':'en-GB' }}</p>
-               <!-- <p class="text-xs text-gray-500 mt-1">Sum of all category budgets</p> -->
-              </div>
+      @if (!hasFiscalYear) {
+        <div class="text-center py-8 bg-gray-50 rounded-lg">
+          <p class="text-gray-600 mb-2">No Fiscal Year Selected</p>
+          <p class="text-sm text-gray-500">Please select or add a fiscal year first to manage budgets.</p>
+        </div>
+      } @else {
+        @if (budget$ | async; as budget) {
+          <div class="space-y-6">
+            <!-- Overall Budget -->
+            <div class="space-y-4">
+              <h4 class="text-sm font-medium text-gray-900">Overall Budget</h4>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <!-- Total Budget -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                  <p class="text-sm text-gray-600">Total Budget</p>
+                  <p class="text-2xl font-bold text-gray-900">{{ budget.totalBudget | currency:'GBP':'symbol':'1.2-2':'en-GB' }}</p>
+                </div>
 
-              
-
-              <!-- Remaining -->
-              <div class="bg-gray-50 rounded-lg p-4">
-                <p class="text-sm text-gray-600">Remaining</p>
-                <p class="text-2xl font-bold" [class.text-green-600]="getRemainingBudget() >= 0" [class.text-red-600]="getRemainingBudget() < 0">
-                  {{ getRemainingBudget() | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
-                </p>
-              </div>
-            </div>
-
-            <!-- Overall Progress Bar -->
-            <div class="space-y-2">
-              <div class="flex justify-between text-sm">
-                <span class="text-gray-600">Overall Budget Usage</span>
-                <span class="text-gray-900">{{ getBudgetUsagePercentage() | number:'1.0-1' }}%</span>
-              </div>
-              <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div class="h-full transition-all duration-500"
-                     [class.bg-green-500]="getBudgetUsagePercentage() < 80"
-                     [class.bg-yellow-500]="getBudgetUsagePercentage() >= 80 && getBudgetUsagePercentage() < 100"
-                     [class.bg-red-500]="getBudgetUsagePercentage() >= 100"
-                     [style.width.%]="Math.min(getBudgetUsagePercentage(), 100)">
+                <!-- Remaining -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                  <p class="text-sm text-gray-600">Remaining</p>
+                  @if (remainingBudget$ | async; as remaining) {
+                    <p class="text-2xl font-bold" 
+                       [class.text-green-600]="remaining >= 0" 
+                       [class.text-red-600]="remaining < 0">
+                      {{ remaining | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
+                    </p>
+                  }
                 </div>
               </div>
-            </div>
-          </div>
 
-          <!-- Category Budgets -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-medium text-gray-900">Category Budgets</h4>
-
-            @if (budget.categoryBudgets.length > 0) {
-              <div class="h-[230px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-                @for (categoryBudget of budget.categoryBudgets; track categoryBudget.category) {
-                  <div class="bg-gray-50 rounded-lg p-4 space-y-3">
-                    <div class="flex justify-between items-center">
-                      <span class="font-medium text-gray-900">{{ categoryBudget.category }}</span>
-                      <button
-                        (click)="editCategoryBudget(categoryBudget)"
-                        class="text-sm text-gray-600 hover:text-gray-900"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                      <div>
-                        <p class="text-sm text-gray-600">Budget</p>
-                        <p class="text-lg font-semibold text-gray-900">
-                          {{ categoryBudget.budgetAmount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
-                        </p>
-                      </div>
-                      <div>
-                        <p class="text-sm text-gray-600">Spent</p>
-                        <p class="text-lg font-semibold text-gray-900">
-                          {{ categoryBudget.spentAmount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
-                        </p>
-                      </div>
-                    </div>
-                    <div class="space-y-1">
-                      <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Usage</span>
-                        <span class="text-gray-900">
-                          {{ (categoryBudget.spentAmount / categoryBudget.budgetAmount * 100) | number:'1.0-1' }}%
-                        </span>
-                      </div>
-                      <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div class="h-full transition-all duration-500"
-                             [class.bg-green-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount < 0.8"
-                             [class.bg-yellow-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount >= 0.8 && categoryBudget.spentAmount / categoryBudget.budgetAmount < 1"
-                             [class.bg-red-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount >= 1"
-                             [style.width.%]="Math.min((categoryBudget.spentAmount / categoryBudget.budgetAmount * 100), 100)">
-                        </div>
-                      </div>
+              <!-- Overall Progress Bar -->
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-600">Overall Budget Usage</span>
+                  @if (budgetUsagePercentage$ | async; as usagePercentage) {
+                    <span class="text-gray-900">{{ usagePercentage | number:'1.0-1' }}%</span>
+                  }
+                </div>
+                @if (budgetUsagePercentage$ | async; as usagePercentage) {
+                  <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div class="h-full transition-all duration-500"
+                         [class.bg-green-500]="usagePercentage < 80"
+                         [class.bg-yellow-500]="usagePercentage >= 80 && usagePercentage < 100"
+                         [class.bg-red-500]="usagePercentage >= 100"
+                         [style.width.%]="Math.min(usagePercentage, 100)">
                     </div>
                   </div>
                 }
               </div>
-            } @else {
-              <div class="text-center py-8 bg-gray-50 rounded-lg">
-                <p class="text-gray-600 mb-4">No category budgets set yet</p>
-                <button
-                  (click)="showCategoryBudgetForm = true"
-                  class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
-                >
-                  Add Your First Category Budget
-                </button>
-              </div>
-            }
+            </div>
+
+            <!-- Category Budgets -->
+            <div class="space-y-4">
+              <h4 class="text-sm font-medium text-gray-900">Category Budgets</h4>
+
+              @if (budget.categoryBudgets.length > 0) {
+                <div class="h-[230px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                  @for (categoryBudget of budget.categoryBudgets; track categoryBudget.category) {
+                    <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                      <div class="flex justify-between items-center">
+                        <span class="font-medium text-gray-900">{{ categoryBudget.category }}</span>
+                        <button
+                          (click)="editCategoryBudget(categoryBudget)"
+                          class="text-sm text-gray-600 hover:text-gray-900"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <div class="grid grid-cols-2 gap-4">
+                        <div>
+                          <p class="text-sm text-gray-600">Budget</p>
+                          <p class="text-lg font-semibold text-gray-900">
+                            {{ categoryBudget.budgetAmount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
+                          </p>
+                        </div>
+                        <div>
+                          <p class="text-sm text-gray-600">Spent</p>
+                          <p class="text-lg font-semibold text-gray-900">
+                            {{ categoryBudget.spentAmount | currency:'GBP':'symbol':'1.2-2':'en-GB' }}
+                          </p>
+                        </div>
+                      </div>
+                      <div class="space-y-1">
+                        <div class="flex justify-between text-sm">
+                          <span class="text-gray-600">Usage</span>
+                          <span class="text-gray-900">
+                            {{ (categoryBudget.spentAmount / categoryBudget.budgetAmount * 100) | number:'1.0-1' }}%
+                          </span>
+                        </div>
+                        <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div class="h-full transition-all duration-500"
+                               [class.bg-green-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount < 0.8"
+                               [class.bg-yellow-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount >= 0.8 && categoryBudget.spentAmount / categoryBudget.budgetAmount < 1"
+                               [class.bg-red-500]="categoryBudget.spentAmount / categoryBudget.budgetAmount >= 1"
+                               [style.width.%]="Math.min((categoryBudget.spentAmount / categoryBudget.budgetAmount * 100), 100)">
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="text-center py-8 bg-gray-50 rounded-lg">
+                  <p class="text-gray-600 mb-4">No category budgets set yet</p>
+                  <button
+                    (click)="showCategoryBudgetForm = true"
+                    class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
+                  >
+                    Add Your First Category Budget
+                  </button>
+                </div>
+              }
+            </div>
           </div>
-        </div>
-      } @else {
-        <div class="text-center py-8">
-          <p class="text-gray-600 mb-4">Start by adding a category budget</p>
-          <button
-            (click)="showCategoryBudgetForm = true"
-            class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
-          >
-            Add Category Budget
-          </button>
-        </div>
+        }
       }
 
       <!-- Category Budget Form -->
@@ -231,16 +235,29 @@ import { Observable } from 'rxjs';
 export class BudgetComponent implements OnInit {
   protected readonly Math = Math;
   budget$: Observable<Budget | null>;
+  remainingBudget$: Observable<number>;
+  budgetUsagePercentage$: Observable<number>;
   showCategoryBudgetForm = false;
   selectedCategory: ExpenseCategory | '' = '';
   categoryBudgetAmount: number | null = null;
   editingCategoryBudget: CategoryBudget | null = null;
   private currentBudget: Budget | null = null;
+  hasFiscalYear = false;
 
-  constructor(private budgetService: BudgetService) {
+  constructor(
+    private budgetService: BudgetService,
+    private fiscalYearService: FiscalYearService
+  ) {
     this.budget$ = this.budgetService.getBudget();
+    this.remainingBudget$ = this.budgetService.getRemainingBudget();
+    this.budgetUsagePercentage$ = this.budgetService.getBudgetUsagePercentage();
+    
     this.budget$.subscribe(budget => {
       this.currentBudget = budget;
+    });
+
+    this.fiscalYearService.getCurrentFiscalYear().subscribe(fiscalYear => {
+      this.hasFiscalYear = !!fiscalYear;
     });
   }
 
@@ -254,10 +271,12 @@ export class BudgetComponent implements OnInit {
   }
 
   get canSaveCategoryBudget(): boolean {
-    if (this.editingCategoryBudget) {
-      return this.categoryBudgetAmount !== null && this.categoryBudgetAmount > 0;
-    }
-    return this.selectedCategory !== '' && this.categoryBudgetAmount !== null && this.categoryBudgetAmount > 0;
+    return (
+      this.hasFiscalYear &&
+      (!!this.selectedCategory || !!this.editingCategoryBudget) &&
+      this.categoryBudgetAmount !== null &&
+      this.categoryBudgetAmount > 0
+    );
   }
 
   editCategoryBudget(categoryBudget: CategoryBudget): void {
@@ -270,24 +289,15 @@ export class BudgetComponent implements OnInit {
   saveCategoryBudget(): void {
     if (!this.canSaveCategoryBudget) return;
 
-    const category = this.editingCategoryBudget ? this.editingCategoryBudget.category : this.selectedCategory as ExpenseCategory;
+    const category = this.editingCategoryBudget?.category || this.selectedCategory as ExpenseCategory;
     this.budgetService.setCategoryBudget(category, this.categoryBudgetAmount!);
     this.closeCategoryBudgetForm();
   }
 
   closeCategoryBudgetForm(): void {
     this.showCategoryBudgetForm = false;
-    this.editingCategoryBudget = null;
     this.selectedCategory = '';
     this.categoryBudgetAmount = null;
-  }
-
-  getRemainingBudget(): number {
-    return this.budgetService.getRemainingBudget();
-  }
-
-  getBudgetUsagePercentage(): number {
-    if (!this.currentBudget || this.currentBudget.totalBudget === 0) return 0;
-    return (this.currentBudget.totalSpent / this.currentBudget.totalBudget) * 100;
+    this.editingCategoryBudget = null;
   }
 } 

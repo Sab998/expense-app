@@ -17,6 +17,7 @@ export interface Expense {
   category: ExpenseCategory;
   date: Date;
   notes?: string;
+  fiscalYearId: string;
   receipt?: {
     fileName: string;
     fileUrl: string;

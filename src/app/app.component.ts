@@ -7,6 +7,7 @@ import { DashboardComponent } from './components/dashboard/dashboard.component';
 import { BudgetComponent } from './components/budget/budget.component';
 import { ExpenseService } from './services/expense.service';
 import { Expense } from './models/expense.model';
+import { FiscalYearSelectorComponent } from './components/fiscal-year-selector/fiscal-year-selector.component';
 import localeGb from '@angular/common/locales/en-GB';
 
 // Register the locale data for British Pound
@@ -21,13 +22,17 @@ registerLocaleData(localeGb, 'en-GB');
     ExpenseFormComponent,
     ExpenseListComponent,
     DashboardComponent,
-    BudgetComponent
+    BudgetComponent,
+    FiscalYearSelectorComponent
   ],
   template: `
     <div class="min-h-screen bg-gray-50">
       <header class="bg-white shadow-sm">
         <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
-          <h1 class="text-3xl font-bold text-gray-900">Expense Tracker</h1>
+          <div class="flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-900">Expense Tracker</h1>
+            <app-fiscal-year-selector></app-fiscal-year-selector>
+          </div>
         </div>
       </header>
 
@@ -71,19 +76,15 @@ export class AppComponent {
   constructor(private expenseService: ExpenseService) {}
 
   onSubmitExpense(expense: Omit<Expense, 'id'>): void {
-    console.log('AppComponent: Submitting expense:', expense); // Debug log
     if (this.editingExpense) {
-      console.log('AppComponent: Updating expense with ID:', this.editingExpense.id); // Debug log
       this.expenseService.updateExpense(this.editingExpense.id, expense);
     } else {
-      console.log('AppComponent: Adding new expense'); // Debug log
       this.expenseService.addExpense(expense);
     }
     this.editingExpense = undefined;
   }
 
   onEditExpense(expense: Expense): void {
-    console.log('AppComponent: Editing expense:', expense); // Debug log
     this.editingExpense = expense;
   }
 }

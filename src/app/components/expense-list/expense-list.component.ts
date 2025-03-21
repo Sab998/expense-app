@@ -228,11 +228,12 @@ export class ExpenseListComponent implements OnInit, OnDestroy {
     private sanitizer: DomSanitizer
   ) {
     this.filteredExpenses$ = combineLatest([
-      this.expenseService.expenses$,
+      this.expenseService.getExpenses(),
       this.searchTermSubject
     ]).pipe(
       map(([expenses, searchTerm]) => 
         expenses.filter(expense =>
+          !searchTerm ||
           expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
           expense.category.toLowerCase().includes(searchTerm.toLowerCase())
         )
@@ -255,7 +256,6 @@ export class ExpenseListComponent implements OnInit, OnDestroy {
   }
 
   onEdit(expense: Expense): void {
-    console.log('Editing expense:', expense);
     this.editExpense.emit(expense);
   }
 
@@ -274,14 +274,14 @@ export class ExpenseListComponent implements OnInit, OnDestroy {
   }
 
   getSafeUrl(url: string): SafeUrl {
-    return this.sanitizer.bypassSecurityTrustUrl(url);
+    return this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }
 
   getCategoryBgColor(category: string): string {
-    return this.categoryColors[category] || this.categoryColors['Other'];
+    return this.categoryColors[category] + '20'; // 20 is hex for 12% opacity
   }
 
   getCategoryTextColor(category: string): string {
-    return '#FFFFFF';
+    return this.categoryColors[category];
   }
 } 
