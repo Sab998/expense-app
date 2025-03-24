@@ -84,7 +84,7 @@ import { FiscalYearService } from '../../services/fiscal-year.service';
               <h4 class="text-sm font-medium text-gray-900">Category Budgets</h4>
 
               @if (budget.categoryBudgets.length > 0) {
-                <div class="h-[500px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                <div class="h-[230px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
                   @for (categoryBudget of budget.categoryBudgets; track categoryBudget.category) {
                     <div class="bg-gray-50 rounded-lg p-4 space-y-3">
                       <div class="flex justify-between items-center">

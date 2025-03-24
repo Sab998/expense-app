@@ -1,7 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ExpenseFormComponent } from '../expense-form/expense-form.component';
 import { ExpenseListComponent } from '../expense-list/expense-list.component';
+import { ExpenseService } from '../../services/expense.service';
 import { Expense } from '../../models/expense.model';
 
 @Component({
@@ -9,50 +10,54 @@ import { Expense } from '../../models/expense.model';
   standalone: true,
   imports: [CommonModule, ExpenseFormComponent, ExpenseListComponent],
   template: `
-    <div class="container mx-auto px-4 py-8">
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div class="space-y-6">
+      <!-- Header -->
+      <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Expenses</h1>
+      </div>
+
+      <!-- Main Content -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Expense Form -->
         <div class="lg:col-span-1">
-          <app-expense-form
-            [expense]="selectedExpense"
-            (expenseAdded)="onExpenseAdded($event)"
-            (expenseUpdated)="onExpenseUpdated($event)"
-            (formReset)="onFormReset()"
-          ></app-expense-form>
+          <div class="bg-white shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 mb-4">
+              {{ editingExpense ? 'Edit Expense' : 'Add New Expense' }}
+            </h2>
+            <app-expense-form
+              [expense]="editingExpense"
+              (submitExpense)="onSubmitExpense($event)"
+            ></app-expense-form>
+          </div>
         </div>
 
         <!-- Expense List -->
         <div class="lg:col-span-2">
-          <app-expense-list
-            (editExpense)="onEditExpense($event)"
-          ></app-expense-list>
+          <div class="bg-white shadow rounded-lg">
+            <app-expense-list
+              (editExpense)="onEditExpense($event)"
+            ></app-expense-list>
+          </div>
         </div>
       </div>
     </div>
   `
 })
-export class ExpenseManagementComponent implements OnInit {
-  selectedExpense: Expense | undefined;
+export class ExpenseManagementComponent {
+  editingExpense: Expense | undefined;
 
-  constructor() {}
+  constructor(private expenseService: ExpenseService) {}
 
-  ngOnInit(): void {}
-
-  onExpenseAdded(expense: Expense): void {
-    // Handle expense added
-    console.log('Expense added:', expense);
-  }
-
-  onExpenseUpdated(expense: Expense): void {
-    // Handle expense updated
-    console.log('Expense updated:', expense);
+  onSubmitExpense(expense: Omit<Expense, 'id'>): void {
+    if (this.editingExpense) {
+      this.expenseService.updateExpense(this.editingExpense.id, expense);
+    } else {
+      this.expenseService.addExpense(expense);
+    }
+    this.editingExpense = undefined;
   }
 
   onEditExpense(expense: Expense): void {
-    this.selectedExpense = expense;
-  }
-
-  onFormReset(): void {
-    this.selectedExpense = undefined;
+    this.editingExpense = expense;
   }
 } 

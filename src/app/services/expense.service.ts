@@ -119,17 +119,4 @@ export class ExpenseService {
   private saveExpenses(): void {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.expenses.value));
   }
-
-  async uploadReceipt(file: File): Promise<string> {
-    // In a real application, this would upload to a server
-    // For now, we'll create a data URL
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        resolve(reader.result as string);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
 } 
