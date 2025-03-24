@@ -89,4 +89,45 @@ export class FiscalYearService {
   private saveFiscalYearBudgets(): void {
     localStorage.setItem('fiscalYearBudgets', JSON.stringify(this.fiscalYearBudgets.value));
   }
+
+  updateFiscalYear(id: string, data: Partial<FiscalYear>): void {
+    const fiscalYears = this.fiscalYears.value;
+    const index = fiscalYears.findIndex(fy => fy.id === id);
+    
+    if (index !== -1) {
+      const updatedFiscalYear = { ...fiscalYears[index], ...data };
+      fiscalYears[index] = updatedFiscalYear;
+      
+      // If this fiscal year is being set as active, update the current fiscal year
+      if (data.isActive) {
+        this.currentFiscalYear.next(updatedFiscalYear);
+      }
+      
+      localStorage.setItem('fiscalYears', JSON.stringify(fiscalYears));
+      this.fiscalYears.next(fiscalYears);
+    }
+  }
+
+  deleteFiscalYear(id: string): void {
+    const fiscalYears = this.fiscalYears.value;
+    const filteredFiscalYears = fiscalYears.filter(fy => fy.id !== id);
+    
+    // Delete associated budget
+    const budgets = this.fiscalYearBudgets.value;
+    const filteredBudgets = budgets.filter(b => b.fiscalYearId !== id);
+    this.fiscalYearBudgets.next(filteredBudgets);
+    this.saveFiscalYearBudgets();
+    
+    // Update fiscal years
+    localStorage.setItem('fiscalYears', JSON.stringify(filteredFiscalYears));
+    this.fiscalYears.next(filteredFiscalYears);
+    
+    // If the deleted fiscal year was active, set the first available fiscal year as active
+    const currentFiscalYear = this.currentFiscalYear.value;
+    if (currentFiscalYear?.id === id && filteredFiscalYears.length > 0) {
+      this.setActiveFiscalYear(filteredFiscalYears[0].id);
+    } else if (filteredFiscalYears.length === 0) {
+      this.currentFiscalYear.next(null);
+    }
+  }
 } 
