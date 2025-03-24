@@ -1,79 +1,122 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, map } from 'rxjs';
+import { BehaviorSubject, Observable, combineLatest, map, take } from 'rxjs';
 import { Expense, ExpenseCategory, ExpenseSummary } from '../models/expense.model';
+import { BudgetService } from './budget.service';
+import { FiscalYearService } from './fiscal-year.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ExpenseService {
   private expenses = new BehaviorSubject<Expense[]>([]);
-  expenses$ = this.expenses.asObservable();
+  private readonly STORAGE_KEY = 'expenses';
 
-  constructor() {
-    // Load expenses from localStorage on initialization
-    const savedExpenses = localStorage.getItem('expenses');
-    if (savedExpenses) {
-      this.expenses.next(JSON.parse(savedExpenses));
-    }
+  constructor(
+    private budgetService: BudgetService,
+    private fiscalYearService: FiscalYearService
+  ) {
+    this.loadExpenses();
   }
 
-  private saveToLocalStorage(expenses: Expense[]): void {
-    localStorage.setItem('expenses', JSON.stringify(expenses));
+  getExpenses(): Observable<Expense[]> {
+    return combineLatest([
+      this.expenses,
+      this.fiscalYearService.getCurrentFiscalYear()
+    ]).pipe(
+      map(([expenses, currentFiscalYear]) => {
+        if (!currentFiscalYear) return [];
+        return expenses.filter(expense => expense.fiscalYearId === currentFiscalYear.id);
+      })
+    );
   }
 
   addExpense(expense: Omit<Expense, 'id'>): void {
-    const newExpense = {
-      ...expense,
-      id: crypto.randomUUID()
-    };
-    const currentExpenses = this.expenses.value;
-    const updatedExpenses = [...currentExpenses, newExpense];
-    this.expenses.next(updatedExpenses);
-    this.saveToLocalStorage(updatedExpenses);
+    this.fiscalYearService.getCurrentFiscalYear().pipe(take(1)).subscribe(currentFiscalYear => {
+      if (!currentFiscalYear) return;
+
+      const newExpense: Expense = {
+        ...expense,
+        id: crypto.randomUUID(),
+        fiscalYearId: currentFiscalYear.id
+      };
+
+      const updatedExpenses = [...this.expenses.value, newExpense];
+      this.expenses.next(updatedExpenses);
+      this.saveExpenses();
+      this.updateBudgetSpentAmount(newExpense.category);
+    });
   }
 
-  updateExpense(expense: Expense): void {
-    const currentExpenses = this.expenses.value;
-    const updatedExpenses = currentExpenses.map(e => 
-      e.id === expense.id ? expense : e
-    );
-    this.expenses.next(updatedExpenses);
-    this.saveToLocalStorage(updatedExpenses);
+  updateExpense(id: string, expense: Omit<Expense, 'id'>): void {
+    this.fiscalYearService.getCurrentFiscalYear().pipe(take(1)).subscribe(currentFiscalYear => {
+      if (!currentFiscalYear) return;
+
+      const updatedExpenses = this.expenses.value.map(e =>
+        e.id === id ? { ...expense, id, fiscalYearId: currentFiscalYear.id } : e
+      );
+      this.expenses.next(updatedExpenses);
+      this.saveExpenses();
+      this.updateBudgetSpentAmounts();
+    });
   }
 
   deleteExpense(id: string): void {
-    const currentExpenses = this.expenses.value;
-    const updatedExpenses = currentExpenses.filter(e => e.id !== id);
+    const updatedExpenses = this.expenses.value.filter(e => e.id !== id);
     this.expenses.next(updatedExpenses);
-    this.saveToLocalStorage(updatedExpenses);
+    this.saveExpenses();
+    this.updateBudgetSpentAmounts();
   }
 
   getExpenseSummary(): Observable<ExpenseSummary> {
-    return this.expenses$.pipe(
+    return this.getExpenses().pipe(
       map(expenses => {
-        const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-        const categoryBreakdown = expenses.reduce((acc, exp) => {
-          const category = exp.category as ExpenseCategory;
-          acc[category] = (acc[category] || 0) + exp.amount;
-          return acc;
+        const totalAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+        const categoryBreakdown = expenses.reduce((breakdown, expense) => {
+          const currentAmount = breakdown[expense.category] || 0;
+          return {
+            ...breakdown,
+            [expense.category]: currentAmount + expense.amount
+          };
         }, {} as { [key in ExpenseCategory]?: number });
-
-        const recentExpenses = [...expenses]
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 5);
 
         return {
           totalAmount,
           categoryBreakdown,
-          recentExpenses
+          recentExpenses: expenses.slice(-5)
         };
       })
     );
   }
 
-  getExpensesByCategory(category: ExpenseCategory): Observable<Expense[]> {
-    return this.expenses$.pipe(
-      map(expenses => expenses.filter(e => e.category === category))
-    );
+  private updateBudgetSpentAmount(category: ExpenseCategory): void {
+    this.getExpenses().subscribe(expenses => {
+      const totalSpent = expenses
+        .filter(e => e.category === category)
+        .reduce((sum, e) => sum + e.amount, 0);
+      
+      this.budgetService.updateSpentAmount(category, totalSpent);
+    });
+  }
+
+  private updateBudgetSpentAmounts(): void {
+    Object.values(ExpenseCategory).forEach(category => {
+      this.updateBudgetSpentAmount(category);
+    });
+  }
+
+  private loadExpenses(): void {
+    const savedExpenses = localStorage.getItem(this.STORAGE_KEY);
+    if (savedExpenses) {
+      const expenses = JSON.parse(savedExpenses).map((e: any) => ({
+        ...e,
+        date: new Date(e.date)
+      }));
+      this.expenses.next(expenses);
+      this.updateBudgetSpentAmounts();
+    }
+  }
+
+  private saveExpenses(): void {
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.expenses.value));
   }
 } 
